@@ -1,0 +1,50 @@
+name: Compilar y publicar versión
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+
+      - name: Instalar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Instalar PyInstaller
+        run: python -m pip install --upgrade pip pyinstaller
+
+      - name: Escribir número de versión desde el tag
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          @{ version = $version } | ConvertTo-Json -Compress | Set-Content -Path version.json -Encoding ascii
+          Get-Content version.json
+
+      - name: Compilar ejecutable
+        run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name RegistroTaximetros --add-data "version.json;." main.py
+
+      - name: Generar checksum SHA256
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -Algorithm SHA256 .\dist\RegistroTaximetros.exe).Hash.ToLower()
+          "$hash  RegistroTaximetros.exe" | Set-Content -Path .\dist\RegistroTaximetros.exe.sha256 -Encoding ascii
+
+      - name: Crear release con los archivos
+        uses: softprops/action-gh-release@v2
+        with:
+          name: RegistroTaximetros ${{ github.ref_name }}
+          generate_release_notes: true
+          files: |
+            dist/RegistroTaximetros.exe
+            dist/RegistroTaximetros.exe.sha256
