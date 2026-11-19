@@ -40,6 +40,12 @@ jobs:
           $hash = (Get-FileHash -Algorithm SHA256 .\dist\RegistroTaximetros.exe).Hash.ToLower()
           "$hash  RegistroTaximetros.exe" | Set-Content -Path .\dist\RegistroTaximetros.exe.sha256 -Encoding ascii
 
+      - name: Compilar desinstalador e instalador
+        shell: pwsh
+        run: |
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name DesinstalarRegistroTaximetros instalador/desinstalador.py
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name InstalarRegistroTaximetros --add-data "dist\RegistroTaximetros.exe;." --add-data "actualizaciones.json;." --add-data "dist\DesinstalarRegistroTaximetros.exe;." instalador/instalador.py
+
       - name: Crear release con los archivos
         uses: softprops/action-gh-release@v2
         with:
@@ -48,3 +54,4 @@ jobs:
           files: |
             dist/RegistroTaximetros.exe
             dist/RegistroTaximetros.exe.sha256
+            dist/InstalarRegistroTaximetros.exe

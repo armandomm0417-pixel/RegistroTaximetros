@@ -43,6 +43,19 @@ Para cambiar la versión en una compilación local, edita `version.json`:
 {"version": "1.0.1"}
 ```
 
+## 2.1 Instalador para otra PC
+
+El instalador es un único ejecutable que instala la aplicación, crea los accesos directos y registra el desinstalador.
+
+1. Ejecuta `build.bat` en la carpeta principal para generar `dist\RegistroTaximetros.exe`.
+2. Ejecuta `instalador\build_instalador.bat`.
+3. Se crea `instalador\Output\InstalarRegistroTaximetros.exe` (unos 35 MB).
+4. Copia **ese único archivo** a la otra PC y ejecútalo.
+
+Por defecto instala en `%LOCALAPPDATA%\Programs\RegistroTaximetros`, sin pedir permisos de administrador. Durante la instalación puedes elegir otra carpeta, crear accesos en el escritorio y en el menú Inicio, y abrir la aplicación al terminar.
+
+Para desinstalar, usa el acceso *Desinstalar* del menú Inicio o *Aplicaciones y características*. Los registros de ventas se conservan por defecto; el desinstalador ofrece borrarlos también.
+
 ## 3. Configurar las actualizaciones desde GitHub
 
 ### 3.1 Crear el repositorio
@@ -67,7 +80,7 @@ Sustituye `owner` y `repo` por los tuyos. Sin este archivo el programa funciona 
 
 ### 3.3 Publicar una versión nueva
 
-Cada vez que subas un tag que empiece por `v`, GitHub Actions compila el `.exe`, calcula su SHA256 y crea una release con ambos archivos:
+Cada vez que subas un tag que empiece por `v`, GitHub Actions compila el `.exe`, calcula su SHA256, genera el instalador y crea una release con los tres archivos:
 
 ```bat
 git add .
