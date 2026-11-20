@@ -6,6 +6,7 @@ import queue
 import re
 import threading
 from datetime import date
+from pathlib import Path
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
@@ -169,64 +170,6 @@ def configurar_estilos() -> None:
     )
 
 
-class ProgressDialog(tk.Toplevel):
-    """Ventana de progreso de la descarga de actualizaciones."""
-
-    def __init__(self, parent: tk.Tk):
-        super().__init__(parent)
-        self.title("Actualizando")
-        self.transient(parent)
-        self.resizable(False, False)
-        self.configure(bg=COLORES["tarjeta"])
-        self.protocol("WM_DELETE_WINDOW", lambda: None)
-
-        cabecera = tk.Frame(self, bg=COLORES["nav"], height=52)
-        cabecera.pack(fill="x")
-        cabecera.pack_propagate(False)
-        tk.Label(
-            cabecera,
-            text="Descargando actualización",
-            bg=COLORES["nav"],
-            fg="#FFFFFF",
-            font=("Segoe UI", 11, "bold"),
-        ).pack(side="left", padx=18)
-
-        cuerpo = tk.Frame(self, bg=COLORES["tarjeta"], padding=(20, 18))
-        cuerpo.pack(fill="both", expand=True)
-        tk.Label(
-            cuerpo,
-            text="Obteniendo la nueva versión desde GitHub...",
-            bg=COLORES["tarjeta"],
-            fg=COLORES["texto_suave"],
-            font=("Segoe UI", 10),
-        ).pack(anchor="w")
-        self.barra = ttk.Progressbar(
-            cuerpo,
-            orient="horizontal",
-            mode="determinate",
-            length=360,
-            maximum=100,
-            style="Accent.Horizontal.TProgressbar",
-        )
-        self.barra.pack(fill="x", pady=(14, 8))
-        self.etiqueta = tk.Label(
-            cuerpo,
-            text="0 %",
-            bg=COLORES["tarjeta"],
-            fg=COLORES["muted"],
-            font=("Segoe UI", 9),
-        )
-        self.etiqueta.pack(anchor="e")
-
-        self.grab_set()
-        self.update_idletasks()
-
-    def actualizar(self, fraccion: float) -> None:
-        porcentaje = max(0.0, min(1.0, fraccion)) * 100
-        self.barra["value"] = porcentaje
-        self.etiqueta.config(text=f"{porcentaje:.0f} %")
-
-
 class NavButton(tk.Button):
     """Botón del menú lateral con efecto hover y estado activo."""
 
@@ -285,6 +228,7 @@ class ConfigDialog(tk.Toplevel):
             "asset_name": tk.StringVar(
                 value=str(actual.get("asset_name", "RegistroTaximetros.exe"))
             ),
+            "latest_url": tk.StringVar(value=str(actual.get("latest_url", ""))),
         }
         self.auto_check = tk.BooleanVar(value=bool(actual.get("auto_check", True)))
         self.intervalo = tk.StringVar(
@@ -343,6 +287,7 @@ class ConfigDialog(tk.Toplevel):
         self._campo(datos, 1, "owner", "Usuario u organización (owner)")
         self._campo(datos, 2, "repo", "Repositorio")
         self._campo(datos, 3, "asset_name", "Archivo de la release")
+        self._campo(datos, 4, "latest_url", "URL de latest.json (opcional)")
 
         frecuencia = self._tarjeta(cuerpo)
         frecuencia.pack(pady=(12, 0))
@@ -439,21 +384,33 @@ class ConfigDialog(tk.Toplevel):
         owner = self.vars["owner"].get().strip()
         repo = self.vars["repo"].get().strip()
         asset = self.vars["asset_name"].get().strip() or "RegistroTaximetros.exe"
-        if not owner or not repo:
-            messagebox.showwarning(
-                "Datos incompletos",
-                "Indica el usuario y el repositorio de GitHub.",
-                parent=self,
-            )
-            return None
-        for nombre, valor in (("usuario", owner), ("repositorio", repo)):
-            if not re.fullmatch(r"[A-Za-z0-9_.-]+", valor):
+        latest_url = self.vars["latest_url"].get().strip()
+
+        if latest_url:
+            if not latest_url.startswith(("http://", "https://")):
                 messagebox.showwarning(
-                    "Valor no válido",
-                    f"El {nombre} solo admite letras, números, puntos, guiones y guiones bajos.",
+                    "URL no válida",
+                    "La URL de latest.json debe empezar por http:// o https://.",
                     parent=self,
                 )
                 return None
+        else:
+            if not owner or not repo:
+                messagebox.showwarning(
+                    "Datos incompletos",
+                    "Indica el usuario y el repositorio de GitHub, o una URL de latest.json.",
+                    parent=self,
+                )
+                return None
+            for nombre, valor in (("usuario", owner), ("repositorio", repo)):
+                if not re.fullmatch(r"[A-Za-z0-9_.-]+", valor):
+                    messagebox.showwarning(
+                        "Valor no válido",
+                        f"El {nombre} solo admite letras, números, puntos, guiones y guiones bajos.",
+                        parent=self,
+                    )
+                    return None
+
         try:
             intervalo = int(self.intervalo.get().strip())
         except (TypeError, ValueError):
@@ -469,6 +426,7 @@ class ConfigDialog(tk.Toplevel):
             "owner": owner,
             "repo": repo,
             "asset_name": asset,
+            "latest_url": latest_url,
             "auto_check": self.auto_check.get(),
             "check_interval_minutes": intervalo,
         }
@@ -494,25 +452,28 @@ class ConfigDialog(tk.Toplevel):
         datos = self._validar()
         if datos is None:
             return
+        url = datos["latest_url"] or (
+            f"https://github.com/{datos['owner']}/{datos['repo']}"
+            "/releases/latest/download/latest.json"
+        )
         self.boton_probar.config(state="disabled")
         self.etiqueta_prueba.config(
-            text="Comprobando conexión con GitHub...", fg=COLORES["muted"]
+            text="Comprobando conexión...", fg=COLORES["muted"]
         )
         hilo = threading.Thread(
-            target=self._probar_worker,
-            args=(datos["owner"], datos["repo"]),
-            daemon=True,
+            target=self._probar_worker, args=(url,), daemon=True
         )
         hilo.start()
         self.after(120, self._poll_prueba)
 
-    def _probar_worker(self, owner: str, repo: str) -> None:
+    def _probar_worker(self, url: str) -> None:
         try:
-            datos = updater.descargar_json(
-                f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+            datos = updater.descargar_json(url)
+            version = (
+                str(datos.get("version") or datos.get("tag_name") or "").lstrip("vV")
+                or "sin versión"
             )
-            version = str(datos.get("tag_name", "")).lstrip("vV") or "sin versión"
-            self.resultado.put(("ok", f"Conectado. Última release: v{version}"))
+            self.resultado.put(("ok", f"Conectado. Última versión: v{version}"))
         except Exception as error:  # noqa: BLE001 - se muestra al usuario
             self.resultado.put(("error", f"No se pudo conectar: {error}"))
 
@@ -538,8 +499,10 @@ class RegistroApp:
 
         self.editing_id: int | None = None
         self.colas = queue.Queue()
-        self.progreso: ProgressDialog | None = None
         self._check_job: str | None = None
+        self.actualizacion_info: updater.UpdateInfo | None = None
+        self.actualizacion_archivo: str | None = None
+        self._descargando = False
 
         self.vars = {
             "cliente": tk.StringVar(),
@@ -555,6 +518,7 @@ class RegistroApp:
         self._crear_menu()
         self._construir_interfaz()
         self.refrescar()
+        self._restaurar_aviso_descarga()
         self._poll()
         self.programar_verificacion(primera=True)
 
@@ -857,9 +821,52 @@ class RegistroApp:
         vertical.grid(row=0, column=1, sticky="ns")
         horizontal.grid(row=1, column=0, sticky="ew")
 
+        # Aviso de actualización (no modal)
+        self.banner = tk.Frame(
+            principal,
+            bg="#ECFDF5",
+            highlightthickness=1,
+            highlightbackground="#A7F3D0",
+            padx=12,
+            pady=8,
+        )
+        self.banner.grid(row=4, column=0, sticky="ew", pady=(8, 0))
+        self.banner_textos = tk.Frame(self.banner, bg="#ECFDF5")
+        self.banner_textos.pack(side="left", fill="x", expand=True)
+        self.banner_titulo = tk.Label(
+            self.banner_textos,
+            text="",
+            bg="#ECFDF5",
+            fg="#065F46",
+            font=("Segoe UI", 10, "bold"),
+            anchor="w",
+        )
+        self.banner_titulo.pack(anchor="w")
+        self.banner_detalle = tk.Label(
+            self.banner_textos,
+            text="",
+            bg="#ECFDF5",
+            fg="#047857",
+            font=("Segoe UI", 9),
+            anchor="w",
+        )
+        self.banner_detalle.pack(anchor="w")
+        self.boton_banner_accion = ttk.Button(
+            self.banner,
+            text="Instalar ahora",
+            style="Accent.TButton",
+            command=self.instalar_actualizacion_descargada,
+        )
+        self.boton_banner_accion.pack(side="right", padx=(8, 0))
+        self.boton_banner_cerrar = ttk.Button(
+            self.banner, text="Más tarde", style="Outline.TButton", command=self.ocultar_banner
+        )
+        self.boton_banner_cerrar.pack(side="right")
+        self.banner.grid_remove()
+
         # Estado
         barra = tk.Frame(principal, bg=COLORES["fondo"])
-        barra.grid(row=4, column=0, sticky="ew", pady=(10, 0))
+        barra.grid(row=5, column=0, sticky="ew", pady=(10, 0))
         self.status_dot = tk.Label(
             barra, text="●", bg=COLORES["fondo"], fg=COLORES["accent"], font=("Segoe UI", 11)
         )
@@ -1209,7 +1216,7 @@ class RegistroApp:
         ConfigDialog(self.root, al_guardar=self._al_guardar_configuracion)
 
     def _al_guardar_configuracion(self) -> None:
-        self.programar_verificacion()
+        self.programar_verificacion(primera=True)
         self._estado("Configuración de actualizaciones guardada.", "ok")
 
     def verificar_actualizaciones(self, manual: bool = False) -> None:
@@ -1219,7 +1226,7 @@ class RegistroApp:
                     "Actualizaciones",
                     "El sistema de actualizaciones todavía no está configurado.\n\n"
                     "Abre Archivo → Configuración de actualizaciones (o el botón "
-                    "⚙ del menú lateral) y completa el usuario y el repositorio de GitHub.",
+                    "⚙ del menú lateral) y completa los datos de GitHub o la URL de latest.json.",
                     parent=self.root,
                 )
             return
@@ -1235,7 +1242,12 @@ class RegistroApp:
             self.colas.put(("error_check", str(error), manual))
 
     def _descargar(self, informacion: updater.UpdateInfo) -> None:
-        self.progreso = ProgressDialog(self.root)
+        if self._descargando:
+            return
+        self._descargando = True
+        self.actualizacion_info = informacion
+        self.ocultar_banner()
+        self._estado(f"Descargando actualización v{informacion.version}...", "info")
         hilo = threading.Thread(
             target=self._descargar_worker, args=(informacion,), daemon=True
         )
@@ -1247,40 +1259,91 @@ class RegistroApp:
 
         try:
             archivo = updater.descargar(informacion, avanzar)
+            self._descargando = False
             self.colas.put(("downloaded", archivo, False))
         except Exception as error:  # noqa: BLE001
+            self._descargando = False
             self.colas.put(("error_download", str(error), False))
 
-    def _cerrar_progreso(self) -> None:
-        if self.progreso is not None:
-            self.progreso.destroy()
-            self.progreso = None
+    def _restaurar_aviso_descarga(self) -> None:
+        pendiente = updater.leer_pendiente()
+        if not pendiente:
+            return
+        archivo = updater.directorio_descargas() / str(pendiente.get("archivo", ""))
+        if not archivo.exists():
+            updater.borrar_pendiente()
+            return
+        self.actualizacion_archivo = str(archivo)
+        self.actualizacion_info = updater.UpdateInfo(
+            available=True,
+            version=str(pendiente.get("version", "")),
+            notes=str(pendiente.get("notes", "")),
+        )
+        self._mostrar_banner(
+            "Actualización lista para instalar",
+            f"Versión {pendiente.get('version', '')}. Puedes seguir trabajando; "
+            "instálala cuando reinicies.",
+        )
 
-    def _confirmar_instalacion(self, archivo) -> None:
-        if is_frozen():
-            aceptado = messagebox.askyesno(
+    def _mostrar_banner(
+        self,
+        titulo: str,
+        detalle: str,
+        error: bool = False,
+        comando=None,
+        texto_accion: str = "",
+        texto_cerrar: str = "",
+    ) -> None:
+        fondo = "#FEF2F2" if error else "#ECFDF5"
+        borde = "#FECACA" if error else "#A7F3D0"
+        titulo_color = "#991B1B" if error else "#065F46"
+        detalle_color = "#B91C1C" if error else "#047857"
+        self.banner.configure(bg=fondo, highlightbackground=borde)
+        self.banner_textos.configure(bg=fondo)
+        self.banner_titulo.configure(text=titulo, bg=fondo, fg=titulo_color)
+        self.banner_detalle.configure(text=detalle, bg=fondo, fg=detalle_color)
+        if comando is None:
+            comando = self._reintentar_descarga if error else self.instalar_actualizacion_descargada
+        self.boton_banner_accion.configure(
+            text=texto_accion or ("Reintentar" if error else "Instalar ahora"),
+            command=comando,
+        )
+        self.boton_banner_cerrar.configure(
+            text=texto_cerrar or ("Cerrar" if error else "Más tarde"),
+            command=self.ocultar_banner,
+        )
+        self.banner.grid()
+
+    def ocultar_banner(self) -> None:
+        self.banner.grid_remove()
+
+    def _reintentar_descarga(self) -> None:
+        self.ocultar_banner()
+        self.verificar_actualizaciones(manual=True)
+
+    def instalar_actualizacion_descargada(self) -> None:
+        if not self.actualizacion_archivo:
+            self.ocultar_banner()
+            return
+        if not is_frozen():
+            messagebox.showinfo(
                 "Actualización descargada",
-                "La nueva versión está lista. El programa se cerrará para instalarla "
-                "y volverá a abrirse automáticamente.\n\n¿Continuar ahora?",
+                f"El instalador se guardó en:\n{self.actualizacion_archivo}\n\n"
+                "Ejecútalo para instalar la nueva versión.",
                 parent=self.root,
             )
-            if not aceptado:
-                self._estado("Actualización descargada. Se instalará al reiniciar.", "warn")
-                return
-            try:
-                updater.instalar(archivo)
-            except Exception as error:  # noqa: BLE001
-                messagebox.showerror("No se pudo instalar", str(error), parent=self.root)
-                return
-            self.root.destroy()
-        else:
-            aceptado = messagebox.askyesno(
-                "Actualización descargada",
-                f"El archivo se guardó en:\n{archivo}\n\n¿Abrir la carpeta?",
-                parent=self.root,
+            return
+        try:
+            updater.instalar(Path(self.actualizacion_archivo))
+        except Exception as error:  # noqa: BLE001
+            self._mostrar_banner(
+                "No se pudo iniciar la instalación",
+                str(error),
+                error=True,
+                texto_cerrar="Cerrar",
             )
-            if aceptado:
-                updater.mostrar_carpeta(archivo)
+            return
+        self.root.destroy()
 
     def _poll(self) -> None:
         try:
@@ -1288,24 +1351,18 @@ class RegistroApp:
                 tipo, contenido, manual = self.colas.get_nowait()
                 if tipo == "check":
                     if contenido.available:
-                        self._estado(f"Actualización v{contenido.version} disponible.", "warn")
-                        self._estado_actualizacion(
-                            f"versión {contenido.version} disponible", "warn"
+                        self._estado(
+                            f"Actualización v{contenido.version} disponible. Descargando...",
+                            "info",
                         )
-                        if manual:
-                            notas = contenido.notes[:400]
-                            mensaje = f"Hay una versión nueva: {contenido.version}."
-                            if notas:
-                                mensaje += f"\n\nNovedades:\n{notas}"
-                            mensaje += "\n\n¿Descargar e instalar ahora?"
-                            if messagebox.askyesno(
-                                "Actualización disponible", mensaje, parent=self.root
-                            ):
-                                self._descargar(contenido)
+                        self._estado_actualizacion(
+                            f"descargando v{contenido.version}", "info"
+                        )
+                        self._descargar(contenido)
                     else:
-                        mensaje = "Ya tienes la versión más reciente."
                         self._estado_actualizacion("al día", "ok")
                         if manual:
+                            mensaje = "Ya tienes la versión más reciente."
                             self._estado(mensaje, "ok")
                             messagebox.showinfo("Actualizaciones", mensaje, parent=self.root)
                 elif tipo == "error_check":
@@ -1314,21 +1371,31 @@ class RegistroApp:
                     if manual:
                         messagebox.showerror(
                             "Actualizaciones",
-                            f"No se pudo conectar con GitHub:\n{contenido}",
+                            f"No se pudo conectar con el servidor de actualizaciones:\n{contenido}",
                             parent=self.root,
                         )
                 elif tipo == "progress":
-                    if self.progreso is not None:
-                        self.progreso.actualizar(contenido)
+                    porcentaje = int(max(0.0, min(1.0, contenido)) * 100)
+                    self._estado(f"Descargando actualización... {porcentaje} %", "info")
                 elif tipo == "downloaded":
-                    self._cerrar_progreso()
-                    self._estado_actualizacion("descarga completada", "ok")
-                    self._confirmar_instalacion(contenido)
+                    self.actualizacion_archivo = str(contenido)
+                    self._estado_actualizacion("lista para instalar", "ok")
+                    self._estado("Actualización descargada. Puedes instalarla cuando quieras.", "ok")
+                    version = self.actualizacion_info.version if self.actualizacion_info else ""
+                    notas = self.actualizacion_info.notes if self.actualizacion_info else ""
+                    detalle = f"Versión {version}."
+                    if notas:
+                        detalle += f" {notas[:120]}"
+                    self._mostrar_banner("Actualización lista para instalar", detalle)
                 elif tipo == "error_download":
-                    self._cerrar_progreso()
                     self._estado("La descarga de la actualización falló.", "error")
-                    messagebox.showerror(
-                        "Error de descarga", str(contenido), parent=self.root
+                    self._estado_actualizacion("descarga fallida", "error")
+                    self._mostrar_banner(
+                        "No se pudo descargar la actualización",
+                        str(contenido),
+                        error=True,
+                        comando=self._reintentar_descarga,
+                        texto_cerrar="Cerrar",
                     )
         except queue.Empty:
             pass

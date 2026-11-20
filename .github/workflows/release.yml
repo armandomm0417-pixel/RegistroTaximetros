@@ -34,24 +34,64 @@ jobs:
       - name: Compilar ejecutable
         run: python -m PyInstaller --noconfirm --clean --onefile --windowed --name RegistroTaximetros --add-data "version.json;." main.py
 
-      - name: Generar checksum SHA256
+      - name: Generar checksum SHA256 de la app
         shell: pwsh
         run: |
           $hash = (Get-FileHash -Algorithm SHA256 .\dist\RegistroTaximetros.exe).Hash.ToLower()
           "$hash  RegistroTaximetros.exe" | Set-Content -Path .\dist\RegistroTaximetros.exe.sha256 -Encoding ascii
 
-      - name: Compilar desinstalador e instalador
+      - name: Crear actualizaciones.json para la release
         shell: pwsh
         run: |
+          $config = @{
+            owner                  = "${{ github.repository_owner }}"
+            repo                   = "${{ github.event.repository.name }}"
+            asset_name             = "RegistroTaximetros.exe"
+            latest_url             = ""
+            auto_check             = $true
+            check_interval_minutes = 60
+          }
+          $json = $config | ConvertTo-Json
+          [IO.File]::WriteAllText((Join-Path $pwd 'actualizaciones.json'), $json, (New-Object Text.UTF8Encoding($false)))
+          Get-Content actualizaciones.json
+
+      - name: Compilar desinstalador e instalador versionado
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          $instalador = "RegistroTaximetrosSetup-$version"
           python -m PyInstaller --noconfirm --clean --onefile --windowed --name DesinstalarRegistroTaximetros instalador/desinstalador.py
-          python -m PyInstaller --noconfirm --clean --onefile --windowed --name InstalarRegistroTaximetros --add-data "dist\RegistroTaximetros.exe;." --add-data "actualizaciones.json;." --add-data "dist\DesinstalarRegistroTaximetros.exe;." instalador/instalador.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          python -m PyInstaller --noconfirm --clean --onefile --windowed --name $instalador --add-data "dist\RegistroTaximetros.exe;." --add-data "actualizaciones.json;." --add-data "dist\DesinstalarRegistroTaximetros.exe;." instalador/instalador.py
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          Write-Output "Instalador: dist\$instalador.exe"
+
+      - name: Generar latest.json
+        shell: pwsh
+        run: |
+          $version = "${{ github.ref_name }}".TrimStart('v')
+          $nombre = "RegistroTaximetrosSetup-$version.exe"
+          $ruta = Join-Path $pwd "dist\$nombre"
+          $hash = (Get-FileHash -Algorithm SHA256 $ruta).Hash.ToLower()
+          $latest = @{
+            version = $version
+            url     = $nombre
+            sha256  = $hash
+            notes   = "Correcciones y mejoras"
+          }
+          $json = $latest | ConvertTo-Json
+          $destino = Join-Path $pwd 'dist\latest.json'
+          [IO.File]::WriteAllText($destino, $json, (New-Object Text.UTF8Encoding($false)))
+          Get-Content $destino
 
       - name: Crear release con los archivos
         uses: softprops/action-gh-release@v2
         with:
           name: RegistroTaximetros ${{ github.ref_name }}
+          body: Correcciones y mejoras
           generate_release_notes: true
           files: |
             dist/RegistroTaximetros.exe
             dist/RegistroTaximetros.exe.sha256
-            dist/InstalarRegistroTaximetros.exe
+            dist/RegistroTaximetrosSetup-*.exe
+            dist/latest.json

@@ -2,6 +2,7 @@
   "owner": "armandomm0417-pixel",
   "repo": "RegistroTaximetros",
   "asset_name": "RegistroTaximetros.exe",
+  "latest_url": "",
   "auto_check": true,
   "check_interval_minutes": 60
 }

@@ -70,11 +70,12 @@ Para desinstalar, usa el acceso *Desinstalar* del menú Inicio o *Aplicaciones y
 La forma más sencilla es abrir **Archivo → Configuración de actualizaciones** (o el botón **⚙ Configuración** del menú lateral). Allí puedes cambiar:
 
 - **Usuario u organización (owner)** y **repositorio** de GitHub.
-- **Archivo de la release** que se descargará (`asset_name`).
+- **URL de latest.json** (opcional): si la rellenas, se usa esa dirección en vez de la de GitHub. Sirve para servidores propios.
+- **Archivo de la release** (`asset_name`, valor de respaldo).
 - **Comprobación automática**: activarla o desactivarla.
 - **Intervalo**: cada cuántos minutos se revisa si hay versión nueva (de 5 a 1440).
 
-El botón **Probar conexión** consulta GitHub con los datos escritos y muestra la última release encontrada, sin necesidad de guardar primero. Al guardar, los cambios se escriben en `actualizaciones.json` junto al `.exe` y se reprograman las comprobaciones automáticas al instante.
+El botón **Probar conexión** descarga `latest.json` con los datos escritos y muestra la versión encontrada, sin guardar primero. Al guardar, los cambios se escriben en `actualizaciones.json` junto al `.exe` y se reprograman las comprobaciones al instante.
 
 También puedes editar el archivo a mano a partir del ejemplo:
 
@@ -83,6 +84,7 @@ También puedes editar el archivo a mano a partir del ejemplo:
   "owner": "TU_USUARIO_DE_GITHUB",
   "repo": "TU_REPOSITORIO",
   "asset_name": "RegistroTaximetros.exe",
+  "latest_url": "",
   "auto_check": true,
   "check_interval_minutes": 60
 }
@@ -92,7 +94,12 @@ Sin este archivo el programa funciona con normalidad, pero el menú **Ayuda → 
 
 ### 3.3 Publicar una versión nueva
 
-Cada vez que subas un tag que empiece por `v`, GitHub Actions compila el `.exe`, calcula su SHA256, genera el instalador y crea una release con los tres archivos:
+Cada vez que subas un tag que empiece por `v`, GitHub Actions compila la app y el instalador versionado, calcula su SHA256, genera `latest.json` y crea una release con estos archivos:
+
+- `RegistroTaximetros.exe`
+- `RegistroTaximetros.exe.sha256`
+- `RegistroTaximetrosSetup-1.0.1.exe`
+- `latest.json`
 
 ```bat
 git add .
@@ -102,17 +109,36 @@ git push origin main
 git push origin v1.0.1
 ```
 
-También puedes crear la release manualmente desde la web de GitHub. La condición indispensable es que el asset se llame exactamente `RegistroTaximetros.exe` (o el nombre que pusiste en `asset_name`).
+`latest.json` queda disponible en:
+
+```
+https://github.com/USUARIO/REPO/releases/latest/download/latest.json
+```
+
+y tiene este formato:
+
+```json
+{
+  "version": "1.0.1",
+  "url": "RegistroTaximetrosSetup-1.0.1.exe",
+  "sha256": "...",
+  "notes": "Correcciones y mejoras"
+}
+```
+
+El campo `url` puede ser solo el nombre del archivo (se resuelve contra la misma release) o una URL completa. El SHA256 se calcula en Windows con `Get-FileHash`; en una PC también puedes verificarlo con `certutil -hashfile "instalador.exe" SHA256`.
 
 ### 3.4 Cómo se ve la actualización para el usuario
 
-- Al abrir el programa se comprueba silenciosamente si hay versión nueva. Después se repite cada `check_interval_minutes` mientras la comprobación automática esté activada. Si hay novedades, se muestra un aviso en la barra de estado.
-- El menú **Ayuda → Buscar actualizaciones** permite comprobar manualmente y descargar.
-- La descarga muestra una barra de progreso y valida el SHA256 si la release incluye el archivo `RegistroTaximetros.exe.sha256`.
-- Al aceptar, el programa se cierra, reemplaza el ejecutable y se abre de nuevo automáticamente.
-- Si estás ejecutando desde Python (no desde el `.exe`), la descarga se guarda en `datos\actualizaciones\` y se ofrece abrir la carpeta para reemplazar el archivo manualmente.
+- Al abrir el programa se comprueba silenciosamente `latest.json`. Después se repite cada `check_interval_minutes` mientras la comprobación automática esté activada.
+- Si hay versión nueva, **se descarga en segundo plano sin bloquear la venta**: solo aparece el porcentaje en la barra de estado.
+- Al terminar, se valida el SHA256. Si coincide, aparece un **banner no modal** con **Instalar ahora** y **Más tarde**. Puedes seguir registrando ventas mientras tanto.
+- Si eliges **Más tarde**, el instalador queda guardado en `datos\actualizaciones\` y el aviso vuelve a aparecer al reiniciar.
+- Al pulsar **Instalar ahora**, la app se cierra, se ejecuta el instalador de forma silenciosa sobre la carpeta actual y la aplicación se abre de nuevo.
+- Si el hash no coincide, la descarga se descarta y el banner ofrece **Reintentar**.
+- Si estás ejecutando desde Python (no desde el `.exe`), el instalador se guarda en `datos\actualizaciones\` y se muestra su ruta para ejecutarlo manualmente.
 
-La comparación de versiones se hace con el tag de la release, por ejemplo `v1.0.1`. Usa siempre formato `vN.N.N`.
+La comparación de versiones usa el campo `version` de `latest.json`, por ejemplo `1.0.1`. Usa siempre formato `N.N.N`.
 
 ## 4. Datos y copias de seguridad
 
@@ -134,8 +160,8 @@ Para hacer una copia, basta con cerrar el programa y copiar `ventas.sqlite3`. Ta
 
 | Situación | Solución |
 |---|---|
-| "No se pudo comprobar actualizaciones" | Revisa conexión a internet, el usuario/repo en `actualizaciones.json` y que el repo sea público o accesible. |
-| "La release no incluye el archivo..." | El nombre del asset debe coincidir con `asset_name`. |
-| "La suma de verificación SHA256 no coincide" | La descarga se descartó. Vuelve a intentarlo; si persiste, revisa el workflow de GitHub. |
+| "No se pudo comprobar actualizaciones" | Revisa conexión a internet, la URL de `latest.json` (o usuario/repo) y que el repo sea público o accesible. |
+| "latest.json no indica el instalador" | El campo `url` de `latest.json` debe contener el nombre del instalador o una URL completa. |
+| "La suma de verificación SHA256 no coincide" | La descarga se descartó. Vuelve a intentarlo; si persiste, revisa el workflow de GitHub y que `sha256` corresponda al instalador publicado. |
 | `git` no está instalado en tu PC | No hace falta para ejecutar el programa: el workflow de GitHub compila en la nube. Para publicar tags necesitarás Git o crear la release desde la web. |
-| El .exe no se reemplaza | Revisa `datos\actualizacion.log`. Asegúrate de no tener otra instancia abierta. |
+| El instalador no se aplica | Revisa `datos\actualizacion.log`. Asegúrate de no tener otra instancia abierta. |

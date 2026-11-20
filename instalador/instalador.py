@@ -14,7 +14,7 @@ from tkinter import filedialog, messagebox, ttk
 
 APP_ID = "RegistroTaximetros"
 NOMBRE = "Registro de Taxímetros"
-VERSION = "1.0.0"
+VERSION = "1.0.1"
 
 
 def recurso(nombre: str) -> Path:
@@ -231,15 +231,23 @@ class InstaladorApp:
 
 def main() -> None:
     argumentos = sys.argv[1:]
+    silencioso = "--silencioso" in argumentos
+    sin_accesos = "--sin-accesos" in argumentos
+
+    destino_texto = ""
     if "--dir" in argumentos:
         indice = argumentos.index("--dir")
         if indice + 1 >= len(argumentos):
             print("Uso: InstalarRegistroTaximetros.exe --dir \"C:\\Ruta\"")
             sys.exit(1)
-        sin_accesos = "--sin-accesos" in argumentos
+        destino_texto = argumentos[indice + 1]
+    elif silencioso or sin_accesos:
+        destino_texto = str(directorio_por_defecto())
+
+    if destino_texto:
         try:
             destino = instalar(
-                argumentos[indice + 1],
+                destino_texto,
                 crear_escritorio=not sin_accesos,
                 crear_inicio=not sin_accesos,
                 ejecutar=False,

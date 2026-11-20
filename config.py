@@ -64,6 +64,7 @@ UPDATE_DEFAULTS = {
     "owner": "",
     "repo": "",
     "asset_name": "RegistroTaximetros.exe",
+    "latest_url": "",
     "auto_check": True,
     "check_interval_minutes": 60,
 }
@@ -128,4 +129,7 @@ def guardar_update_config(datos: dict) -> dict:
 
 
 def updates_configured() -> bool:
-    return bool(UPDATE_CONFIG["owner"] and UPDATE_CONFIG["repo"])
+    return bool(
+        UPDATE_CONFIG.get("latest_url")
+        or (UPDATE_CONFIG["owner"] and UPDATE_CONFIG["repo"])
+    )
