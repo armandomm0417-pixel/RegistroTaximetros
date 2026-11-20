@@ -64,27 +64,67 @@ UPDATE_DEFAULTS = {
     "owner": "",
     "repo": "",
     "asset_name": "RegistroTaximetros.exe",
+    "auto_check": True,
+    "check_interval_minutes": 60,
 }
 
 
-def load_update_config() -> dict[str, str]:
+def _normalizar_updates(datos: dict) -> dict:
+    """Convierte los valores leídos del JSON a los tipos esperados."""
     configuracion = dict(UPDATE_DEFAULTS)
+    if not isinstance(datos, dict):
+        return configuracion
+
+    for clave, por_defecto in UPDATE_DEFAULTS.items():
+        if clave not in datos:
+            continue
+        valor = datos[clave]
+        if isinstance(por_defecto, bool):
+            if isinstance(valor, bool):
+                configuracion[clave] = valor
+            elif isinstance(valor, str):
+                configuracion[clave] = valor.strip().lower() in {
+                    "1", "true", "sí", "si", "yes", "on", "activado"
+                }
+            elif isinstance(valor, (int, float)):
+                configuracion[clave] = bool(valor)
+        elif isinstance(por_defecto, int):
+            try:
+                numero = int(str(valor).strip())
+            except (TypeError, ValueError):
+                continue
+            configuracion[clave] = max(1, min(numero, 1440))
+        else:
+            texto = "" if valor is None else str(valor).strip()
+            if texto:
+                configuracion[clave] = texto
+    return configuracion
+
+
+def load_update_config() -> dict:
     archivo = app_dir() / "actualizaciones.json"
     if archivo.exists():
         try:
             with archivo.open(encoding="utf-8-sig") as manejador:
-                datos = json.load(manejador)
-            if isinstance(datos, dict):
-                for clave in UPDATE_DEFAULTS:
-                    valor = datos.get(clave)
-                    if valor:
-                        configuracion[clave] = str(valor).strip()
+                return _normalizar_updates(json.load(manejador))
         except (OSError, ValueError):
             pass
-    return configuracion
+    return dict(UPDATE_DEFAULTS)
 
 
 UPDATE_CONFIG = load_update_config()
+
+
+def guardar_update_config(datos: dict) -> dict:
+    """Guarda la configuración y actualiza el dict compartido con el actualizador."""
+    configuracion = _normalizar_updates(datos)
+    archivo = app_dir() / "actualizaciones.json"
+    with archivo.open("w", encoding="utf-8") as manejador:
+        json.dump(configuracion, manejador, indent=2, ensure_ascii=False)
+        manejador.write("\n")
+    UPDATE_CONFIG.clear()
+    UPDATE_CONFIG.update(configuracion)
+    return configuracion
 
 
 def updates_configured() -> bool:

@@ -3,12 +3,14 @@
 from __future__ import annotations
 
 import queue
+import re
 import threading
 from datetime import date
 
 import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 
+import config
 import database
 import updater
 from config import APP_TITLE, APP_VERSION, is_frozen, updates_configured
@@ -264,6 +266,268 @@ class NavButton(tk.Button):
         )
 
 
+class ConfigDialog(tk.Toplevel):
+    """Ventana para editar la configuración de actualizaciones."""
+
+    def __init__(self, parent: tk.Tk, al_guardar=None):
+        super().__init__(parent)
+        self.parent = parent
+        self.al_guardar = al_guardar
+        self.title("Configuración de actualizaciones")
+        self.resizable(False, False)
+        self.configure(bg=COLORES["fondo"])
+        self.transient(parent)
+
+        actual = config.UPDATE_CONFIG
+        self.vars = {
+            "owner": tk.StringVar(value=str(actual.get("owner", ""))),
+            "repo": tk.StringVar(value=str(actual.get("repo", ""))),
+            "asset_name": tk.StringVar(
+                value=str(actual.get("asset_name", "RegistroTaximetros.exe"))
+            ),
+        }
+        self.auto_check = tk.BooleanVar(value=bool(actual.get("auto_check", True)))
+        self.intervalo = tk.StringVar(
+            value=str(actual.get("check_interval_minutes", 60))
+        )
+        self.resultado = queue.Queue()
+
+        self._construir()
+        self._centrar(parent)
+        self.grab_set()
+        self.protocol("WM_DELETE_WINDOW", self.destroy)
+        self.entrada_owner.focus_set()
+
+    def _centrar(self, parent: tk.Tk) -> None:
+        self.update_idletasks()
+        ancho, alto = self.winfo_width(), self.winfo_height()
+        x = parent.winfo_rootx() + max(0, (parent.winfo_width() - ancho) // 2)
+        y = parent.winfo_rooty() + max(0, (parent.winfo_height() - alto) // 2)
+        self.geometry(f"+{x}+{y}")
+
+    def _construir(self) -> None:
+        cabecera = tk.Frame(self, bg=COLORES["nav"], height=64)
+        cabecera.pack(fill="x")
+        cabecera.pack_propagate(False)
+        franja = tk.Frame(cabecera, bg=COLORES["accent"], width=5)
+        franja.pack(side="left", fill="y")
+        textos = tk.Frame(cabecera, bg=COLORES["nav"])
+        textos.pack(side="left", padx=18)
+        tk.Label(
+            textos,
+            text="Configuración de actualizaciones",
+            bg=COLORES["nav"],
+            fg="#FFFFFF",
+            font=("Segoe UI", 13, "bold"),
+        ).pack(anchor="w", pady=(11, 0))
+        tk.Label(
+            textos,
+            text="Los cambios se guardan en actualizaciones.json",
+            bg=COLORES["nav"],
+            fg=COLORES["muted"],
+            font=("Segoe UI", 9),
+        ).pack(anchor="w")
+
+        cuerpo = tk.Frame(self, bg=COLORES["fondo"], padx=20, pady=16)
+        cuerpo.pack(fill="both", expand=True)
+
+        datos = self._tarjeta(cuerpo)
+        datos.columnconfigure(1, weight=1)
+        tk.Label(
+            datos,
+            text="Repositorio de GitHub",
+            bg=COLORES["tarjeta"],
+            fg=COLORES["texto"],
+            font=("Segoe UI", 11, "bold"),
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=18, pady=(16, 8))
+        self._campo(datos, 1, "owner", "Usuario u organización (owner)")
+        self._campo(datos, 2, "repo", "Repositorio")
+        self._campo(datos, 3, "asset_name", "Archivo de la release")
+
+        frecuencia = self._tarjeta(cuerpo)
+        frecuencia.pack(pady=(12, 0))
+        tk.Label(
+            frecuencia,
+            text="Comprobación automática",
+            bg=COLORES["tarjeta"],
+            fg=COLORES["texto"],
+            font=("Segoe UI", 11, "bold"),
+        ).grid(row=0, column=0, columnspan=2, sticky="w", padx=18, pady=(14, 6))
+        ttk.Checkbutton(
+            frecuencia,
+            text="Buscar novedades al iniciar y de forma periódica",
+            variable=self.auto_check,
+            command=self._alternar_intervalo,
+        ).grid(row=1, column=0, columnspan=2, sticky="w", padx=18)
+        fila = tk.Frame(frecuencia, bg=COLORES["tarjeta"])
+        fila.grid(row=2, column=0, columnspan=2, sticky="w", padx=18, pady=(6, 14))
+        tk.Label(
+            fila, text="Cada", bg=COLORES["tarjeta"], fg=COLORES["texto_suave"],
+            font=("Segoe UI", 10),
+        ).pack(side="left")
+        self.entrada_intervalo = ttk.Entry(
+            fila, textvariable=self.intervalo, style="Modern.TEntry", width=7
+        )
+        self.entrada_intervalo.pack(side="left", padx=6)
+        tk.Label(
+            fila,
+            text="minutos (de 5 a 1440)",
+            bg=COLORES["tarjeta"],
+            fg=COLORES["muted"],
+            font=("Segoe UI", 9),
+        ).pack(side="left")
+        self._alternar_intervalo()
+
+        self.etiqueta_prueba = tk.Label(
+            cuerpo,
+            text="",
+            bg=COLORES["fondo"],
+            fg=COLORES["muted"],
+            font=("Segoe UI", 9),
+            wraplength=500,
+            justify="left",
+        )
+        self.etiqueta_prueba.pack(anchor="w", pady=(12, 0))
+
+        botones = tk.Frame(cuerpo, bg=COLORES["fondo"])
+        botones.pack(fill="x", pady=(14, 0))
+        self.boton_probar = ttk.Button(
+            botones, text="Probar conexión", style="Soft.TButton", command=self.probar
+        )
+        self.boton_probar.pack(side="left")
+        ttk.Button(
+            botones, text="Cancelar", style="Outline.TButton", command=self.destroy
+        ).pack(side="right", padx=(8, 0))
+        ttk.Button(
+            botones, text="Guardar", style="Accent.TButton", command=self.guardar
+        ).pack(side="right")
+
+    @staticmethod
+    def _tarjeta(padre: tk.Widget) -> tk.Frame:
+        tarjeta = tk.Frame(
+            padre,
+            bg=COLORES["tarjeta"],
+            highlightthickness=1,
+            highlightbackground=COLORES["borde"],
+        )
+        tarjeta.pack(fill="x")
+        return tarjeta
+
+    def _campo(self, padre: tk.Widget, fila: int, clave: str, titulo: str) -> None:
+        tk.Label(
+            padre,
+            text=titulo,
+            bg=COLORES["tarjeta"],
+            fg=COLORES["texto_suave"],
+            font=("Segoe UI", 9, "bold"),
+        ).grid(row=fila, column=0, sticky="w", padx=(18, 10), pady=(2, 1))
+        entrada = ttk.Entry(
+            padre, textvariable=self.vars[clave], style="Modern.TEntry", width=42
+        )
+        entrada.grid(
+            row=fila, column=1, sticky="ew", padx=(0, 18), pady=(4, 3), ipady=1
+        )
+        if clave == "owner":
+            self.entrada_owner = entrada
+
+    def _alternar_intervalo(self) -> None:
+        self.entrada_intervalo.config(
+            state="normal" if self.auto_check.get() else "disabled"
+        )
+
+    def _validar(self) -> dict | None:
+        owner = self.vars["owner"].get().strip()
+        repo = self.vars["repo"].get().strip()
+        asset = self.vars["asset_name"].get().strip() or "RegistroTaximetros.exe"
+        if not owner or not repo:
+            messagebox.showwarning(
+                "Datos incompletos",
+                "Indica el usuario y el repositorio de GitHub.",
+                parent=self,
+            )
+            return None
+        for nombre, valor in (("usuario", owner), ("repositorio", repo)):
+            if not re.fullmatch(r"[A-Za-z0-9_.-]+", valor):
+                messagebox.showwarning(
+                    "Valor no válido",
+                    f"El {nombre} solo admite letras, números, puntos, guiones y guiones bajos.",
+                    parent=self,
+                )
+                return None
+        try:
+            intervalo = int(self.intervalo.get().strip())
+        except (TypeError, ValueError):
+            intervalo = 0
+        if not 5 <= intervalo <= 1440:
+            messagebox.showwarning(
+                "Intervalo no válido",
+                "Escribe un número de minutos entre 5 y 1440.",
+                parent=self,
+            )
+            return None
+        return {
+            "owner": owner,
+            "repo": repo,
+            "asset_name": asset,
+            "auto_check": self.auto_check.get(),
+            "check_interval_minutes": intervalo,
+        }
+
+    def guardar(self) -> None:
+        datos = self._validar()
+        if datos is None:
+            return
+        try:
+            config.guardar_update_config(datos)
+        except OSError as error:
+            messagebox.showerror(
+                "No se pudo guardar",
+                f"No se pudo escribir actualizaciones.json:\n{error}",
+                parent=self,
+            )
+            return
+        if self.al_guardar:
+            self.al_guardar()
+        self.destroy()
+
+    def probar(self) -> None:
+        datos = self._validar()
+        if datos is None:
+            return
+        self.boton_probar.config(state="disabled")
+        self.etiqueta_prueba.config(
+            text="Comprobando conexión con GitHub...", fg=COLORES["muted"]
+        )
+        hilo = threading.Thread(
+            target=self._probar_worker,
+            args=(datos["owner"], datos["repo"]),
+            daemon=True,
+        )
+        hilo.start()
+        self.after(120, self._poll_prueba)
+
+    def _probar_worker(self, owner: str, repo: str) -> None:
+        try:
+            datos = updater.descargar_json(
+                f"https://api.github.com/repos/{owner}/{repo}/releases/latest"
+            )
+            version = str(datos.get("tag_name", "")).lstrip("vV") or "sin versión"
+            self.resultado.put(("ok", f"Conectado. Última release: v{version}"))
+        except Exception as error:  # noqa: BLE001 - se muestra al usuario
+            self.resultado.put(("error", f"No se pudo conectar: {error}"))
+
+    def _poll_prueba(self) -> None:
+        try:
+            tono, mensaje = self.resultado.get_nowait()
+        except queue.Empty:
+            self.after(120, self._poll_prueba)
+            return
+        self.boton_probar.config(state="normal")
+        self.etiqueta_prueba.config(
+            text=mensaje, fg=COLORES["ok"] if tono == "ok" else COLORES["error"]
+        )
+
+
 class RegistroApp:
     def __init__(self, root: tk.Tk):
         self.root = root
@@ -275,6 +539,7 @@ class RegistroApp:
         self.editing_id: int | None = None
         self.colas = queue.Queue()
         self.progreso: ProgressDialog | None = None
+        self._check_job: str | None = None
 
         self.vars = {
             "cliente": tk.StringVar(),
@@ -291,7 +556,7 @@ class RegistroApp:
         self._construir_interfaz()
         self.refrescar()
         self._poll()
-        self.root.after(1200, lambda: self.verificar_actualizaciones(manual=False))
+        self.programar_verificacion(primera=True)
 
     # ------------------------------------------------------------ Construcción
 
@@ -299,6 +564,9 @@ class RegistroApp:
         barra = tk.Menu(self.root)
         archivo = tk.Menu(barra, tearoff=0)
         archivo.add_command(label="Exportar CSV", command=self.exportar_csv)
+        archivo.add_command(
+            label="Configuración de actualizaciones", command=self.abrir_configuracion
+        )
         archivo.add_separator()
         archivo.add_command(label="Salir", command=self.root.destroy)
         ayuda = tk.Menu(barra, tearoff=0)
@@ -409,6 +677,7 @@ class RegistroApp:
             "↻   Actualizaciones",
             lambda: self.verificar_actualizaciones(manual=True),
         ).pack(fill="x")
+        NavButton(lateral, "⚙   Configuración", self.abrir_configuracion).pack(fill="x")
         NavButton(lateral, "ⓘ   Acerca de", self.acerca_de).pack(fill="x")
         NavButton(lateral, "⎋   Salir", self.root.destroy).pack(fill="x")
 
@@ -891,9 +1160,15 @@ class RegistroApp:
         self._estado(f"Se exportaron {len(ventas)} registro(s) a CSV.", "ok")
 
     def acerca_de(self) -> None:
-        estado = (
-            "Configurado" if updates_configured() else "Sin configurar (el registro funciona igual)"
-        )
+        if updates_configured():
+            minutos = config.UPDATE_CONFIG.get("check_interval_minutes", 60)
+            estado = (
+                f"Configuradas cada {minutos} min"
+                if config.UPDATE_CONFIG.get("auto_check", True)
+                else "Configuradas (comprobación automática desactivada)"
+            )
+        else:
+            estado = "Sin configurar (el registro funciona igual)"
         messagebox.showinfo(
             "Acerca de",
             f"{APP_TITLE}\nVersión {APP_VERSION}\n\n"
@@ -905,14 +1180,46 @@ class RegistroApp:
 
     # ------------------------------------------------------- Actualizaciones
 
+    def programar_verificacion(self, primera: bool = False) -> None:
+        """Reprograma la comprobación automática según la configuración actual."""
+        if self._check_job is not None:
+            try:
+                self.root.after_cancel(self._check_job)
+            except tk.TclError:
+                pass
+            self._check_job = None
+
+        if not config.UPDATE_CONFIG.get("auto_check", True):
+            self._estado_actualizacion("desactivadas", "info")
+            return
+        if not updates_configured():
+            self._estado_actualizacion("sin configurar", "info")
+            return
+
+        minutos = int(config.UPDATE_CONFIG.get("check_interval_minutes", 60) or 60)
+        retraso = 1200 if primera else max(1, minutos) * 60 * 1000
+        self._check_job = self.root.after(retraso, self._verificacion_programada)
+
+    def _verificacion_programada(self) -> None:
+        self._check_job = None
+        self.verificar_actualizaciones(manual=False)
+        self.programar_verificacion()
+
+    def abrir_configuracion(self) -> None:
+        ConfigDialog(self.root, al_guardar=self._al_guardar_configuracion)
+
+    def _al_guardar_configuracion(self) -> None:
+        self.programar_verificacion()
+        self._estado("Configuración de actualizaciones guardada.", "ok")
+
     def verificar_actualizaciones(self, manual: bool = False) -> None:
         if not updates_configured():
             if manual:
                 messagebox.showinfo(
                     "Actualizaciones",
                     "El sistema de actualizaciones todavía no está configurado.\n\n"
-                    "Copia actualizaciones.example.json como actualizaciones.json "
-                    "junto al programa y completa tu usuario y repositorio de GitHub.",
+                    "Abre Archivo → Configuración de actualizaciones (o el botón "
+                    "⚙ del menú lateral) y completa el usuario y el repositorio de GitHub.",
                     parent=self.root,
                 )
             return

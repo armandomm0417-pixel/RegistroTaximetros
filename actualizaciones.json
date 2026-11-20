@@ -1,5 +1,7 @@
-﻿{
-    "asset_name":  "RegistroTaximetros.exe",
-    "owner":  "armandomm0417-pixel",
-    "repo":  "RegistroTaximetros"
+{
+  "owner": "armandomm0417-pixel",
+  "repo": "RegistroTaximetros",
+  "asset_name": "RegistroTaximetros.exe",
+  "auto_check": true,
+  "check_interval_minutes": 60
 }

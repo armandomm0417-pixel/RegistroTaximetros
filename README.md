@@ -67,17 +67,28 @@ Para desinstalar, usa el acceso *Desinstalar* del menú Inicio o *Aplicaciones y
 
 ### 3.2 Configurar el programa instalado
 
-Junto al `.exe`, crea un archivo llamado `actualizaciones.json` a partir del ejemplo:
+La forma más sencilla es abrir **Archivo → Configuración de actualizaciones** (o el botón **⚙ Configuración** del menú lateral). Allí puedes cambiar:
+
+- **Usuario u organización (owner)** y **repositorio** de GitHub.
+- **Archivo de la release** que se descargará (`asset_name`).
+- **Comprobación automática**: activarla o desactivarla.
+- **Intervalo**: cada cuántos minutos se revisa si hay versión nueva (de 5 a 1440).
+
+El botón **Probar conexión** consulta GitHub con los datos escritos y muestra la última release encontrada, sin necesidad de guardar primero. Al guardar, los cambios se escriben en `actualizaciones.json` junto al `.exe` y se reprograman las comprobaciones automáticas al instante.
+
+También puedes editar el archivo a mano a partir del ejemplo:
 
 ```json
 {
   "owner": "TU_USUARIO_DE_GITHUB",
   "repo": "TU_REPOSITORIO",
-  "asset_name": "RegistroTaximetros.exe"
+  "asset_name": "RegistroTaximetros.exe",
+  "auto_check": true,
+  "check_interval_minutes": 60
 }
 ```
 
-Sustituye `owner` y `repo` por los tuyos. Sin este archivo el programa funciona con normalidad, pero el menú **Ayuda → Buscar actualizaciones** indicará que no está configurado.
+Sin este archivo el programa funciona con normalidad, pero el menú **Ayuda → Buscar actualizaciones** indicará que no está configurado.
 
 ### 3.3 Publicar una versión nueva
 
@@ -95,7 +106,7 @@ También puedes crear la release manualmente desde la web de GitHub. La condici�
 
 ### 3.4 Cómo se ve la actualización para el usuario
 
-- Al abrir el programa se comprueba silenciosamente si hay versión nueva. Si la hay, se muestra un aviso en la barra de estado.
+- Al abrir el programa se comprueba silenciosamente si hay versión nueva. Después se repite cada `check_interval_minutes` mientras la comprobación automática esté activada. Si hay novedades, se muestra un aviso en la barra de estado.
 - El menú **Ayuda → Buscar actualizaciones** permite comprobar manualmente y descargar.
 - La descarga muestra una barra de progreso y valida el SHA256 si la release incluye el archivo `RegistroTaximetros.exe.sha256`.
 - Al aceptar, el programa se cierra, reemplaza el ejecutable y se abre de nuevo automáticamente.
