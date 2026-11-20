@@ -173,6 +173,30 @@ def eliminar(venta_id: int) -> None:
         conexion.commit()
 
 
+def estadisticas() -> dict:
+    """Indicadores rápidos para el panel principal."""
+    hoy = date.today()
+    prefijo_mes = f"{hoy.year:04d}-{hoy.month:02d}"
+    with closing(_conectar()) as conexion:
+        total = int(conexion.execute("SELECT COUNT(*) FROM ventas").fetchone()[0])
+        del_mes = int(
+            conexion.execute(
+                "SELECT COUNT(*) FROM ventas WHERE fecha LIKE ?", (f"{prefijo_mes}%",)
+            ).fetchone()[0]
+        )
+        ultima = conexion.execute(
+            """
+            SELECT fecha, cliente, numero_serie
+            FROM ventas ORDER BY fecha DESC, id DESC LIMIT 1
+            """
+        ).fetchone()
+    return {
+        "total": total,
+        "del_mes": del_mes,
+        "ultima": dict(ultima) if ultima else None,
+    }
+
+
 def exportar_csv(ruta: str, ventas: list[Venta]) -> None:
     with open(ruta, "w", newline="", encoding="utf-8-sig") as archivo:
         escritor = csv.writer(archivo)

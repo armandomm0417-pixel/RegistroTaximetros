@@ -13,6 +13,7 @@ Aplicación de escritorio para Windows que registra las ventas de taxímetros. G
 
 ## Funciones
 
+- Interfaz moderna con panel lateral, tarjetas de indicadores y tabla de historial
 - Alta, edición y eliminación de registros
 - Búsqueda por cualquier campo (cliente, serie, placas, teléfono, fecha, etc.)
 - Exportación a CSV compatible con Excel
