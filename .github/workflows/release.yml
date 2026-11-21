@@ -47,7 +47,7 @@ jobs:
             owner                  = "${{ github.repository_owner }}"
             repo                   = "${{ github.event.repository.name }}"
             asset_name             = "RegistroTaximetros.exe"
-            latest_url             = ""
+            latest_url             = "${{ github.server_url }}/${{ github.repository }}/releases/latest/download/latest.json"
             auto_check             = $true
             check_interval_minutes = 60
           }
